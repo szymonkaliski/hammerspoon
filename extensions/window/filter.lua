@@ -1341,14 +1341,8 @@ function App:destroyed()
   apps[self.name]=nil
 end
 
-local function windowEvent(win,event,_,appname)
-  local id=win and win.id and win:id()
+local function windowEvent(win,event,_,appname,id)
   local app=apps[appname]
-  if not id and app then
-    for _,v in pairs(app.windows) do
-      if v.window==win then id=v.id break end
-    end
-  end
   log.vf('%s (%s) <= %s (window event)',appname,id or '?',event)
   if not id then return log.df('%s: %s cannot be processed',appname,event) end
   if not app then return log.df('app %s is not registered!',appname) end
@@ -1386,8 +1380,11 @@ appWindowEvent=function(win,event,_,appname,retry)
       return
     end
     if apps[appname].windows[id] then return log.df('%s (%d) already registered',appname,id) end
-    local watcher=win:newWatcher(windowEvent,appname)
-    if not watcher:pid() then
+    local watcher=win:newWatcher(function(win,event,_,appname)
+      windowEvent(win,event,_,appname,id)
+    end, appname)
+    local element=watcher:element()
+    if not element.pid then
       log.wf('%s: %s has no watcher pid',appname,role or (win.role and win:role()))
       if retry>MAX_RETRIES then log.df('%s: %s has no watcher pid',appname,win.subrole and win:subrole() or (win.role and win:role()) or 'window')
       else
@@ -1412,7 +1409,7 @@ local function startAppWatcher(app,appname)
   local watcher = app:newWatcher(appWindowEvent,appname)
   watcher:start({uiwatcher.windowCreated,uiwatcher.focusedWindowChanged})
   App.new(app,appname,watcher)
-  if not watcher:pid() then
+  if not watcher._element.pid then
     log.wf('No accessibility access to app %s (no watcher pid)',(appname or '[???]'))
   end
 end
@@ -1428,7 +1425,8 @@ local function startAppWatcher(app,appname,retry,nologging)
   if retry>1 and not pendingApps[appname] then return end --given up before anything could even happen
 
   local watcher = app:newWatcher(appWindowEvent,appname)
-  if watcher:pid() then
+  local element = watcher:element()
+  if element.pid then
     pendingApps[appname]=nil --done
     watcher:start({uiwatcher.windowCreated,uiwatcher.focusedWindowChanged})
     App.new(app,appname,watcher)
